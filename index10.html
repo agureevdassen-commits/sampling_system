@@ -1,0 +1,1589 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="PWA система учёта геологических проб">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Сканирование проб</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%231a1a2e' width='192' height='192'/><text x='96' y='120' font-size='80' font-weight='bold' fill='%2300d4ff' text-anchor='middle' font-family='Arial'>S</text></svg>">
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary-color: #00d4ff;
+            --primary-dark: #0099cc;
+            --bg-light: #f5f5f5;
+            --bg-dark: #1a1a2e;
+            --text-light: #333;
+            --text-dark: #fff;
+            --border-light: #ddd;
+            --success: #4caf50;
+            --error: #f44336;
+            --warning: #ff9800;
+            --info: #2196f3;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg-light);
+            color: var(--text-light);
+            line-height: 1.6;
+            overflow: hidden;
+        }
+
+        body.dark-theme {
+            background-color: var(--bg-dark);
+            color: var(--text-dark);
+        }
+
+        #root {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Шапка */
+        .header {
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary-color));
+            color: white;
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            font-weight: 600;
+        }
+
+        body.dark-theme .header {
+            background: linear-gradient(135deg, #0a0a1a, var(--bg-dark));
+            border-bottom: 1px solid rgba(0, 212, 255, 0.3);
+        }
+
+        .header-title {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .sync-indicator {
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.2);
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .sync-indicator.pending {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        /* Основной контент */
+        .content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            gap: 0;
+        }
+
+        .left-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 12px;
+            min-width: 0;
+        }
+
+        body.dark-theme .left-panel {
+            background-color: var(--bg-dark);
+        }
+
+        .right-panel {
+            width: 0;
+            overflow: hidden;
+            transition: width 0.3s ease;
+            border-left: 1px solid var(--border-light);
+            display: flex;
+            flex-direction: column;
+            background: white;
+        }
+
+        body.dark-theme .right-panel {
+            background-color: #0a0a1a;
+            border-left-color: rgba(0, 212, 255, 0.2);
+        }
+
+        .right-panel.open {
+            width: 100%;
+            max-width: 400px;
+        }
+
+        @media (max-width: 768px) {
+            .right-panel.open {
+                width: 100%;
+                max-width: 100%;
+            }
+        }
+
+        /* Видео сканирования */
+        .camera-section {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            background: black;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        .camera-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 200px;
+            height: 200px;
+            transform: translate(-50%, -50%);
+            border: 3px solid rgba(0, 212, 255, 0.7);
+            border-radius: 8px;
+            box-shadow: inset 0 0 20px rgba(0, 212, 255, 0.3);
+            pointer-events: none;
+        }
+
+        .camera-status {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 10;
+        }
+
+        .camera-status.initializing { color: #ff9800; }
+        .camera-status.scanning { color: var(--success); animation: blink 0.6s infinite; }
+        .camera-status.disabled { color: #999; }
+        .camera-status.error { color: var(--error); }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Форма ввода */
+        .input-group {
+            margin-bottom: 12px;
+        }
+
+        .input-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: var(--text-light);
+        }
+
+        body.dark-theme .input-label {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .input-wrapper {
+            display: flex;
+            gap: 6px;
+        }
+
+        input, select, textarea {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid var(--border-light);
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        body.dark-theme input,
+        body.dark-theme select,
+        body.dark-theme textarea {
+            background-color: #0f0f1a;
+            border-color: rgba(0, 212, 255, 0.2);
+            color: white;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 6px rgba(0, 212, 255, 0.3);
+        }
+
+        button {
+            padding: 10px 14px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: var(--bg-dark);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 212, 255, 0.3);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: var(--border-light);
+            color: var(--text-light);
+        }
+
+        body.dark-theme .btn-secondary {
+            background: #0f0f1a;
+            color: var(--text-dark);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: #ccc;
+        }
+
+        body.dark-theme .btn-secondary:hover {
+            background: rgba(0, 212, 255, 0.2);
+        }
+
+        .btn-danger {
+            background: var(--error);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #e53935;
+        }
+
+        .btn-small {
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+
+        .btn-icon {
+            padding: 10px;
+            min-width: 40px;
+        }
+
+        .ore-type-buttons {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .ore-type-btn {
+            flex: 1;
+            background: var(--border-light);
+            color: var(--text-light);
+            border: 2px solid transparent;
+        }
+
+        body.dark-theme .ore-type-btn {
+            background: #0f0f1a;
+            border-color: rgba(0, 212, 255, 0.2);
+            color: var(--text-dark);
+        }
+
+        .ore-type-btn.active {
+            background: var(--primary-color);
+            color: var(--bg-dark);
+            border-color: var(--primary-color);
+        }
+
+        /* Статус операции */
+        .status-block {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            word-break: break-word;
+            color: #666;
+            background: #f0f0f0;
+        }
+
+        body.dark-theme .status-block {
+            background: rgba(0, 212, 255, 0.1);
+            color: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+        }
+
+        .status-block.success {
+            background: rgba(76, 175, 80, 0.1);
+            color: #2d5d1f;
+            border-left: 4px solid var(--success);
+        }
+
+        body.dark-theme .status-block.success {
+            background: rgba(76, 175, 80, 0.1);
+            color: rgba(76, 175, 80, 0.9);
+        }
+
+        .status-block.error {
+            background: rgba(244, 67, 54, 0.1);
+            color: #6b1a1a;
+            border-left: 4px solid var(--error);
+        }
+
+        body.dark-theme .status-block.error {
+            background: rgba(244, 67, 54, 0.1);
+            color: rgba(244, 67, 54, 0.9);
+        }
+
+        /* Статистика */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .stat-card {
+            background: white;
+            border: 1px solid var(--border-light);
+            border-radius: 6px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        body.dark-theme .stat-card {
+            background: #0a0a1a;
+            border-color: rgba(0, 212, 255, 0.2);
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        body.dark-theme .stat-label {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Панель списка проб */
+        .scans-list-header {
+            padding: 12px;
+            border-bottom: 1px solid var(--border-light);
+            font-weight: 600;
+        }
+
+        body.dark-theme .scans-list-header {
+            border-bottom-color: rgba(0, 212, 255, 0.2);
+        }
+
+        .scans-search {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+
+        .scans-search input {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .scans-table {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+
+        .scan-row {
+            background: white;
+            border: 1px solid var(--border-light);
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        body.dark-theme .scan-row {
+            background: #0f0f1a;
+            border-color: rgba(0, 212, 255, 0.2);
+        }
+
+        .scan-row:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        body.dark-theme .scan-row:hover {
+            box-shadow: 0 2px 8px rgba(0, 212, 255, 0.2);
+        }
+
+        .scan-row-main {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .scan-row-meta {
+            font-size: 11px;
+            color: #999;
+        }
+
+        body.dark-theme .scan-row-meta {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .scan-row-server-id {
+            color: var(--primary-color);
+            font-size: 10px;
+            margin-top: 4px;
+        }
+
+        .scans-list-footer {
+            padding: 12px;
+            border-top: 1px solid var(--border-light);
+            text-align: center;
+            font-size: 12px;
+            color: #999;
+        }
+
+        body.dark-theme .scans-list-footer {
+            border-top-color: rgba(0, 212, 255, 0.2);
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Нижний тулбар */
+        .toolbar {
+            display: flex;
+            gap: 6px;
+            padding: 12px;
+            background: white;
+            border-top: 1px solid var(--border-light);
+            overflow-x: auto;
+        }
+
+        body.dark-theme .toolbar {
+            background: #0a0a1a;
+            border-top-color: rgba(0, 212, 255, 0.2);
+        }
+
+        .toolbar button {
+            flex: 1;
+            min-width: 80px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+
+        /* Футер со статистикой */
+        .footer-stats {
+            display: none;
+            background: white;
+            border-top: 1px solid var(--border-light);
+            padding: 12px;
+            font-size: 12px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        body.dark-theme .footer-stats {
+            background: #0a0a1a;
+            border-top-color: rgba(0, 212, 255, 0.2);
+        }
+
+        .footer-stats.open {
+            display: block;
+        }
+
+        .footer-stats-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        body.dark-theme .footer-stats-row {
+            border-bottom-color: rgba(0, 212, 255, 0.2);
+        }
+
+        .footer-stats-row:last-child {
+            border-bottom: none;
+        }
+
+        .footer-stats-label {
+            font-weight: 600;
+            color: var(--text-light);
+        }
+
+        body.dark-theme .footer-stats-label {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .footer-stats-value {
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+
+        /* Модальное окно */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 12px;
+        }
+
+        .modal.open {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 500px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        body.dark-theme .modal-content {
+            background: var(--bg-dark);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+        }
+
+        .modal-header {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-light);
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        body.dark-theme .modal-header {
+            border-bottom-color: rgba(0, 212, 255, 0.2);
+        }
+
+        .modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            font-size: 13px;
+            font-family: 'Monaco', 'Courier New', monospace;
+        }
+
+        .modal-footer {
+            padding: 12px;
+            border-top: 1px solid var(--border-light);
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+
+        body.dark-theme .modal-footer {
+            border-top-color: rgba(0, 212, 255, 0.2);
+        }
+
+        /* Чекбокс */
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+
+        input[type="checkbox"] {
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Переключатель темы */
+        .theme-toggle {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            color: var(--bg-dark);
+            border: none;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0, 212, 255, 0.4);
+        }
+
+        body.dark-theme .theme-toggle {
+            background: #0f0f1a;
+            color: var(--primary-color);
+            border: 2px solid var(--primary-color);
+        }
+
+        /* Адаптив */
+        @media (max-width: 600px) {
+            .header-title {
+                font-size: 14px;
+            }
+
+            .sync-indicator {
+                font-size: 11px;
+            }
+
+            input, select {
+                font-size: 16px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .toolbar {
+                padding: 8px;
+            }
+
+            .toolbar button {
+                font-size: 11px;
+                padding: 8px;
+            }
+        }
+
+        /* Уведомление */
+        .notification {
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--success);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            z-index: 999;
+            animation: slideUp 0.3s ease, slideDown 0.3s ease 2.7s;
+        }
+
+        @keyframes slideUp {
+            from { transform: translate(-50%, 20px); opacity: 0; }
+            to { transform: translate(-50%, 0); opacity: 1; }
+        }
+
+        @keyframes slideDown {
+            from { transform: translate(-50%, 0); opacity: 1; }
+            to { transform: translate(-50%, 20px); opacity: 0; }
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <div class="header">
+            <div class="header-title">🔍 Сканирование проб</div>
+            <div class="sync-indicator" id="syncIndicator" title="Нажмите для синхронизации">⇅ локально 0, ожидание 0 / сервер 0</div>
+        </div>
+
+        <div class="content">
+            <!-- Левая панель: Сканирование -->
+            <div class="left-panel">
+                <div class="camera-section">
+                    <video id="video" playsinline autoplay></video>
+                    <div class="camera-overlay"></div>
+                    <div class="camera-status" id="cameraStatus">📹 Инициализация…</div>
+                    <button class="btn-secondary btn-small" id="restartCameraBtn" style="position: absolute; bottom: 8px; left: 8px; z-index: 5;">⟳ Перезапустить</button>
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Проба (Sample)</label>
+                    <div class="input-wrapper">
+                        <input type="text" id="sampleInput" placeholder="Отсканируйте штрихкод или введите вручную" autocomplete="off">
+                        <button class="btn-primary btn-icon" id="submitBtn" title="Enter">✓</button>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Скважина (Well)</label>
+                    <input type="text" id="wellNameInput" placeholder="Номер скважины, например SW-001" autocomplete="off">
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Блок (Block)</label>
+                    <input type="text" id="blockInput" placeholder="Номер блока" autocomplete="off">
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Тип руды (Ore Type)</label>
+                    <div class="ore-type-buttons" id="oreTypeButtons"></div>
+                    <select id="typeSelect" style="width: 100%;">
+                        <option value="">Выберите тип</option>
+                    </select>
+                </div>
+
+                <div class="status-block" id="statusBlock">⏳ Ожидание сканирования…</div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="todayCount">0</div>
+                        <div class="stat-label">Сегодня</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalCount">0</div>
+                        <div class="stat-label">Всего</div>
+                    </div>
+                </div>
+
+                <button class="btn-secondary" id="exportCsvBtn" style="width: 100%;">📥 Экспорт CSV (локально)</button>
+            </div>
+
+            <!-- Правая панель: Список проб -->
+            <div class="right-panel" id="rightPanel">
+                <div class="scans-list-header">📋 Записанные пробы</div>
+                
+                <div style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                    <input type="text" id="searchInput" placeholder="Поиск по Sample или скважине" autocomplete="off">
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" id="pendingOnlyCheckbox">
+                        <span style="font-size: 12px;">Только несинхронизированные</span>
+                    </label>
+                </div>
+
+                <div class="scans-table" id="scansTable"></div>
+                <div class="scans-list-footer"><span id="scansCount">Записей: 0</span></div>
+
+                <div style="padding: 12px; border-top: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 8px;">
+                    <div>
+                        <label class="input-label">Пользователь</label>
+                        <input type="text" id="operatorInput" placeholder="Имя оператора" autocomplete="off">
+                    </div>
+                    <div style="font-size: 12px;" id="connectionStatus">✅ Онлайн (данные синхронизируются)</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer-stats" id="footerStats">
+            <div class="footer-stats-row">
+                <span class="footer-stats-label">Всего локально:</span>
+                <span class="footer-stats-value" id="statsLocalTotal">0</span>
+            </div>
+            <div class="footer-stats-row">
+                <span class="footer-stats-label">Сегодня:</span>
+                <span class="footer-stats-value" id="statsToday">0</span>
+            </div>
+            <div class="footer-stats-row">
+                <span class="footer-stats-label">Последний блок:</span>
+                <span class="footer-stats-value" id="statsLastBlock">—</span>
+            </div>
+            <div class="footer-stats-row">
+                <span class="footer-stats-label" style="flex: 1;">Версия: 1.0.0 PWA - IndexedDB + SQL синхронизация</span>
+            </div>
+        </div>
+
+        <!-- Нижний тулбар -->
+        <div class="toolbar">
+            <button class="btn-secondary" id="toggleListBtn">📋 Пробы</button>
+            <button class="btn-secondary" id="toggleStatsBtn">📊 Статистика</button>
+            <button class="btn-secondary" id="diagnosticsBtn">⚙ Диагностика</button>
+        </div>
+    </div>
+
+    <!-- Модальное окно диагностики -->
+    <div class="modal" id="diagnosticsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                Диагностика
+                <button class="btn-secondary btn-small" onclick="closeDiagnosticsModal()" style="padding: 4px 8px;">✕</button>
+            </div>
+            <div class="modal-body" id="diagnosticsLog"></div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="clearLogsBtn">Очистить журнал</button>
+                <button class="btn-primary" onclick="closeDiagnosticsModal()">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Переключатель темы -->
+    <button class="theme-toggle" id="themeToggle" title="Переключить тему">🌙</button>
+
+    <script src="https://unpkg.com/@zxing/library@latest/umd/index.js"></script>
+
+    <script>
+        // ======================== КОНСТАНТЫ ========================
+        const API_URL = '/api';
+        const API_KEY = 'sampling-dev-key-2025';
+        const DB_NAME = 'sampling_scans_db_v2';
+        const ORE_TYPES = ['520', '360'];
+        const SYNC_INTERVAL = 30000; // 30 секунд
+
+        // ======================== ГЛОБАЛЬНОЕ СОСТОЯНИЕ ========================
+        let db = null;
+        let codeReader = null;
+        let isScanning = false;
+        let lastScannedBarcode = null;
+        let deviceId = null;
+        let lastServerCount = 0;
+        let isSyncing = false;
+
+        // ======================== DOM ЭЛЕМЕНТЫ ========================
+        const elements = {
+            video: document.getElementById('video'),
+            sampleInput: document.getElementById('sampleInput'),
+            wellNameInput: document.getElementById('wellNameInput'),
+            blockInput: document.getElementById('blockInput'),
+            typeSelect: document.getElementById('typeSelect'),
+            operatorInput: document.getElementById('operatorInput'),
+            submitBtn: document.getElementById('submitBtn'),
+            statusBlock: document.getElementById('statusBlock'),
+            cameraStatus: document.getElementById('cameraStatus'),
+            restartCameraBtn: document.getElementById('restartCameraBtn'),
+            syncIndicator: document.getElementById('syncIndicator'),
+            exportCsvBtn: document.getElementById('exportCsvBtn'),
+            toggleListBtn: document.getElementById('toggleListBtn'),
+            toggleStatsBtn: document.getElementById('toggleStatsBtn'),
+            diagnosticsBtn: document.getElementById('diagnosticsBtn'),
+            rightPanel: document.getElementById('rightPanel'),
+            footerStats: document.getElementById('footerStats'),
+            scansTable: document.getElementById('scansTable'),
+            scansCount: document.getElementById('scansCount'),
+            searchInput: document.getElementById('searchInput'),
+            pendingOnlyCheckbox: document.getElementById('pendingOnlyCheckbox'),
+            todayCount: document.getElementById('todayCount'),
+            totalCount: document.getElementById('totalCount'),
+            connectionStatus: document.getElementById('connectionStatus'),
+            diagnosticsModal: document.getElementById('diagnosticsModal'),
+            diagnosticsLog: document.getElementById('diagnosticsLog'),
+            clearLogsBtn: document.getElementById('clearLogsBtn'),
+            themeToggle: document.getElementById('themeToggle'),
+            oreTypeButtons: document.getElementById('oreTypeButtons')
+        };
+
+        // ======================== INDEXEDDB ========================
+        class Database {
+            async init() {
+                return new Promise((resolve, reject) => {
+                    const request = indexedDB.open(DB_NAME, 1);
+
+                    request.onerror = () => {
+                        addLog('error', `Ошибка инициализации БД: ${request.error}`);
+                        reject(request.error);
+                    };
+
+                    request.onsuccess = () => {
+                        this.db = request.result;
+                        addLog('info', 'IndexedDB инициализирована');
+                        resolve();
+                    };
+
+                    request.onupgradeneeded = (e) => {
+                        const db = e.target.result;
+
+                        if (!db.objectStoreNames.contains('scans')) {
+                            const scansStore = db.createObjectStore('scans', { keyPath: 'id', autoIncrement: true });
+                            scansStore.createIndex('sync_status', 'sync_status', { unique: false });
+                            scansStore.createIndex('scanned_at', 'scanned_at', { unique: false });
+                            scansStore.createIndex('sample', 'sample', { unique: false });
+                        }
+
+                        if (!db.objectStoreNames.contains('logs')) {
+                            db.createObjectStore('logs', { keyPath: 'id', autoIncrement: true });
+                        }
+                    };
+                });
+            }
+
+            async addScan(scan) {
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(['scans'], 'readwrite');
+                    const store = tx.objectStore('scans');
+                    const request = store.add(scan);
+
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async getAllScans() {
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(['scans'], 'readonly');
+                    const store = tx.objectStore('scans');
+                    const request = store.getAll();
+
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async getPendingScans() {
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(['scans'], 'readonly');
+                    const store = tx.objectStore('scans');
+                    const index = store.index('sync_status');
+                    const request = index.getAll('pending');
+
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async markSynced(localIds, serverIds) {
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(['scans'], 'readwrite');
+                    const store = tx.objectStore('scans');
+                    const allScans = [];
+
+                    const getAllRequest = store.getAll();
+                    getAllRequest.onsuccess = () => {
+                        const scans = getAllRequest.result;
+                        scans.forEach((scan, idx) => {
+                            if (localIds.includes(scan.id)) {
+                                scan.sync_status = 'synced';
+                                if (serverIds[idx] !== undefined) {
+                                    scan.server_id = serverIds[idx];
+                                }
+                                store.put(scan);
+                            }
+                        });
+
+                        tx.oncomplete = () => resolve();
+                        tx.onerror = () => reject(tx.error);
+                    };
+                });
+            }
+
+            async addLog(entry) {
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(['logs'], 'readwrite');
+                    const store = tx.objectStore('logs');
+                    const request = store.add(entry);
+
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async getLogs(limit = 100) {
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(['logs'], 'readonly');
+                    const store = tx.objectStore('logs');
+                    const request = store.getAll();
+
+                    request.onsuccess = () => {
+                        const logs = request.result;
+                        resolve(logs.slice(-limit));
+                    };
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async clearLogs() {
+                return new Promise((resolve, reject) => {
+                    const tx = this.db.transaction(['logs'], 'readwrite');
+                    const store = tx.objectStore('logs');
+                    const request = store.clear();
+
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            }
+        }
+
+        // ======================== ЛОГИРОВАНИЕ ========================
+        function addLog(level, message) {
+            const entry = {
+                ts: Date.now(),
+                level,
+                message
+            };
+
+            if (db && db.db) {
+                db.addLog(entry).catch(e => console.error('Log error:', e));
+            }
+
+            console.log(`[${level.toUpperCase()}] ${message}`);
+        }
+
+        async function refreshDiagnosticsLog() {
+            const logs = await db.getLogs(100);
+            const logHtml = logs.map(log => {
+                const date = new Date(log.ts);
+                const timeStr = date.toLocaleString('ru-RU', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+                const levelClass = log.level === 'error' ? 'color: #f44336;' : '';
+                return `<div style="${levelClass}">${timeStr} [${log.level.toUpperCase()}]: ${escapeHtml(log.message)}</div>`;
+            }).join('');
+            elements.diagnosticsLog.innerHTML = logHtml || '(нет записей)';
+        }
+
+        function closeDiagnosticsModal() {
+            elements.diagnosticsModal.classList.remove('open');
+        }
+
+        // ======================== ИНИЦИАЛИЗАЦИЯ ========================
+        async function init() {
+            try {
+                // Инициализация БД
+                db = new Database();
+                await db.init();
+                addLog('info', 'Приложение инициализировано');
+
+                // Загрузка конфига из localStorage
+                loadConfig();
+
+                // Инициализация камеры
+                initCamera();
+
+                // Инициализация типов руды
+                initOreTypes();
+
+                // Регистрация Service Worker
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.register('/service-worker.js')
+                        .then(() => addLog('info', 'Service Worker зарегистрирован'))
+                        .catch(e => addLog('error', `Service Worker ошибка: ${e.message}`));
+                }
+
+                // Генерация Device ID
+                if (!localStorage.getItem('deviceId')) {
+                    deviceId = 'device-' + Math.random().toString(36).substr(2, 9);
+                    localStorage.setItem('deviceId', deviceId);
+                } else {
+                    deviceId = localStorage.getItem('deviceId');
+                }
+
+                // Обработчики событий
+                attachEventHandlers();
+
+                // Обновление UI
+                refreshStats();
+                refreshScans();
+
+                // Синхронизация
+                syncPendingScans();
+                setInterval(syncPendingScans, SYNC_INTERVAL);
+
+                // Мониторинг соединения
+                window.addEventListener('online', () => {
+                    addLog('info', 'Соединение восстановлено');
+                    updateConnectionStatus();
+                    syncPendingScans();
+                });
+
+                window.addEventListener('offline', () => {
+                    addLog('info', 'Соединение потеряно');
+                    updateConnectionStatus();
+                });
+
+                updateConnectionStatus();
+            } catch (error) {
+                addLog('error', `Ошибка инициализации: ${error.message}`);
+            }
+        }
+
+        function loadConfig() {
+            const savedBlock = localStorage.getItem('lastBlock');
+            const savedOperator = localStorage.getItem('operatorName');
+
+            if (savedBlock) elements.blockInput.value = savedBlock;
+            if (savedOperator) elements.operatorInput.value = savedOperator;
+        }
+
+        function initOreTypes() {
+            ORE_TYPES.forEach(type => {
+                const option = document.createElement('option');
+                option.value = type;
+                option.textContent = type;
+                elements.typeSelect.appendChild(option);
+
+                const btn = document.createElement('button');
+                btn.className = 'btn-secondary ore-type-btn';
+                btn.textContent = type;
+                btn.onclick = (e) => {
+                    e.preventDefault();
+                    elements.typeSelect.value = type;
+                    document.querySelectorAll('.ore-type-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                };
+                elements.oreTypeButtons.appendChild(btn);
+            });
+        }
+
+        function attachEventHandlers() {
+            elements.submitBtn.addEventListener('click', processScan);
+            elements.sampleInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') processScan();
+            });
+            elements.exportCsvBtn.addEventListener('click', exportCSV);
+            elements.restartCameraBtn.addEventListener('click', restartCamera);
+            elements.toggleListBtn.addEventListener('click', () => {
+                elements.rightPanel.classList.toggle('open');
+            });
+            elements.toggleStatsBtn.addEventListener('click', () => {
+                elements.footerStats.classList.toggle('open');
+            });
+            elements.diagnosticsBtn.addEventListener('click', () => {
+                elements.diagnosticsModal.classList.add('open');
+                refreshDiagnosticsLog();
+            });
+            elements.syncIndicator.addEventListener('click', syncPendingScans);
+            elements.searchInput.addEventListener('input', refreshScans);
+            elements.pendingOnlyCheckbox.addEventListener('change', refreshScans);
+            elements.blockInput.addEventListener('change', () => {
+                localStorage.setItem('lastBlock', elements.blockInput.value);
+            });
+            elements.operatorInput.addEventListener('change', () => {
+                localStorage.setItem('operatorName', elements.operatorInput.value);
+            });
+            elements.clearLogsBtn.addEventListener('click', async () => {
+                await db.clearLogs();
+                refreshDiagnosticsLog();
+                addLog('info', 'Журнал очищен');
+            });
+            elements.themeToggle.addEventListener('click', toggleTheme);
+        }
+
+        // ======================== КАМЕРА И СКАНИРОВАНИЕ ========================
+        async function initCamera() {
+            try {
+                elements.cameraStatus.textContent = '📹 Инициализация…';
+
+                codeReader = new ZXing.BrowserMultiFormatReader();
+                const devices = await codeReader.listVideoInputDevices();
+
+                let selectedDevice = null;
+                const backCamera = devices.find(d => d.label.toLowerCase().includes('back'));
+                selectedDevice = backCamera || devices[devices.length - 1];
+
+                if (!selectedDevice) {
+                    throw new Error('Камера не найдена');
+                }
+
+                isScanning = true;
+                codeReader.decodeFromVideoDevice(selectedDevice.deviceId, 'video', (result, err) => {
+                    if (result && result.text !== lastScannedBarcode) {
+                        lastScannedBarcode = result.text;
+                        onBarcodeScan(result.text);
+                    }
+                });
+
+                elements.cameraStatus.textContent = '🟢 Сканирует';
+                elements.cameraStatus.className = 'camera-status scanning';
+                addLog('info', 'Камера инициализирована');
+            } catch (error) {
+                elements.cameraStatus.textContent = '🔴 Ошибка камеры';
+                elements.cameraStatus.className = 'camera-status error';
+                addLog('error', `Ошибка камеры: ${error.message}`);
+            }
+        }
+
+        function restartCamera() {
+            if (codeReader) {
+                codeReader.reset();
+                isScanning = false;
+            }
+            setTimeout(initCamera, 500);
+        }
+
+        function onBarcodeScan(barcode) {
+            elements.sampleInput.value = barcode;
+            addLog('info', `Отсканировано: ${barcode}`);
+            showNotification(`📌 Отсканировано: ${barcode}`);
+        }
+
+        // ======================== ОБРАБОТКА СКАНИРОВАНИЯ ========================
+        function saveScanToDb(scan) {
+            if (!scan.sample || !scan.sample.trim()) {
+                showStatusMessage('Введите Sample или отсканируйте', 'error');
+                elements.sampleInput.focus();
+                return false;
+            }
+
+            if (!scan.block || !scan.block.trim()) {
+                showStatusMessage('Заполните поле "Блок"', 'error');
+                elements.blockInput.focus();
+                return false;
+            }
+
+            if (!scan.well_name || !scan.well_name.trim()) {
+                showStatusMessage('Заполните поле "Скважина"', 'error');
+                elements.wellNameInput.focus();
+                return false;
+            }
+
+            db.addScan(scan)
+                .then(() => {
+                    addLog('info', `Сохранено: ${scan.sample} (блок ${scan.block})`);
+                    return true;
+                })
+                .catch(err => {
+                    addLog('error', `Ошибка сохранения: ${err.message}`);
+                    showStatusMessage('Ошибка сохранения', 'error');
+                    return false;
+                });
+
+            return true;
+        }
+
+        function processScan() {
+            const sample = elements.sampleInput.value.trim();
+            const wellName = elements.wellNameInput.value.trim();
+            const block = elements.blockInput.value.trim();
+            const type = elements.typeSelect.value;
+
+            if (!sample) {
+                showStatusMessage('Введите Sample или отсканируйте', 'error');
+                elements.sampleInput.focus();
+                return;
+            }
+
+            if (!block) {
+                showStatusMessage('Заполните поле "Блок"', 'error');
+                elements.blockInput.focus();
+                return;
+            }
+
+            if (!wellName) {
+                showStatusMessage('Заполните поле "Скважина"', 'error');
+                elements.wellNameInput.focus();
+                return;
+            }
+
+            const scan = {
+                sample,
+                well_name: wellName,
+                block,
+                type: type || '',
+                scanned_at: Date.now(),
+                scanned_by: elements.operatorInput.value || 'unknown',
+                sync_status: 'pending',
+                is_test: false
+            };
+
+            if (saveScanToDb(scan)) {
+                // Успех
+                playBeep();
+                vibrate();
+
+                showStatusMessage(`✅ Записано: ${sample} (скважина ${wellName}, блок ${block})`, 'success');
+
+                elements.sampleInput.value = '';
+                lastScannedBarcode = null;
+                refreshStats();
+                refreshScans();
+
+                syncPendingScans();
+
+                setTimeout(() => {
+                    elements.sampleInput.focus();
+                    restartCamera();
+                }, 500);
+            }
+        }
+
+        // ======================== СИНХРОНИЗАЦИЯ ========================
+        async function syncPendingScans() {
+            if (isSyncing || !navigator.onLine) return;
+
+            isSyncing = true;
+
+            try {
+                const pending = await db.getPendingScans();
+
+                if (pending.length === 0) {
+                    updateSyncIndicator();
+                    isSyncing = false;
+                    return;
+                }
+
+                const payload = pending.map(scan => ({
+                    device_id: deviceId,
+                    sample: scan.sample,
+                    well_name: scan.well_name,
+                    block: scan.block,
+                    type: scan.type,
+                    scanned_at: scan.scanned_at,
+                    scanned_by: scan.scanned_by,
+                    is_test: scan.is_test || false,
+                    local_id: scan.id
+                }));
+
+                const response = await fetch(`${API_URL}/scans/bulk`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Key': API_KEY
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+                const serverIds = result.server_ids || [];
+                lastServerCount = result.total_on_server || 0;
+
+                await db.markSynced(
+                    pending.map(s => s.id),
+                    serverIds
+                );
+
+                addLog('info', `Синхронизировано ${pending.length} проб`);
+                refreshStats();
+                refreshScans();
+                updateSyncIndicator();
+            } catch (error) {
+                addLog('error', `Ошибка синхронизации: ${error.message}`);
+            } finally {
+                isSyncing = false;
+            }
+        }
+
+        // ======================== UI ОБНОВЛЕНИЕ ========================
+        async function refreshStats() {
+            const allScans = await db.getAllScans();
+            const pending = await db.getPendingScans();
+
+            const today = new Date().toDateString();
+            const todayScans = allScans.filter(s => new Date(s.scanned_at).toDateString() === today);
+
+            elements.todayCount.textContent = todayScans.length;
+            elements.totalCount.textContent = allScans.length;
+
+            elements.statsLocalTotal.textContent = allScans.length;
+            elements.statsToday.textContent = todayScans.length;
+
+            const lastBlock = allScans.length > 0 ? allScans[allScans.length - 1].block : '—';
+            elements.statsLastBlock.textContent = lastBlock;
+
+            updateSyncIndicator();
+        }
+
+        async function updateSyncIndicator() {
+            const allScans = await db.getAllScans();
+            const pending = await db.getPendingScans();
+
+            const text = `⇅ локально ${allScans.length}, ожидание ${pending.length} / сервер ${lastServerCount}`;
+            elements.syncIndicator.textContent = text;
+
+            if (pending.length > 0) {
+                elements.syncIndicator.classList.add('pending');
+            } else {
+                elements.syncIndicator.classList.remove('pending');
+            }
+        }
+
+        async function refreshScans() {
+            const allScans = await db.getAllScans();
+            const searchTerm = elements.searchInput.value.toLowerCase();
+            const showPendingOnly = elements.pendingOnlyCheckbox.checked;
+
+            let filtered = allScans.filter(scan => {
+                const matchesSearch = !searchTerm || 
+                    scan.sample.toLowerCase().includes(searchTerm) ||
+                    scan.well_name.toLowerCase().includes(searchTerm);
+                const matchesStatus = !showPendingOnly || scan.sync_status === 'pending';
+                return matchesSearch && matchesStatus;
+            });
+
+            filtered.sort((a, b) => b.scanned_at - a.scanned_at);
+
+            elements.scansTable.innerHTML = filtered.map(scan => {
+                const date = new Date(scan.scanned_at).toLocaleString('ru-RU');
+                const syncBadge = scan.sync_status === 'pending' ? '⏳' : '✅';
+                return `
+                    <div class="scan-row">
+                        <div class="scan-row-main">${escapeHtml(scan.sample)} ${syncBadge}</div>
+                        <div class="scan-row-meta">скважина: ${escapeHtml(scan.well_name)}</div>
+                        <div class="scan-row-meta">тип/блок: ${escapeHtml(scan.type || '—')} / ${escapeHtml(scan.block)}</div>
+                        <div class="scan-row-meta">${date}</div>
+                        ${scan.server_id ? `<div class="scan-row-server-id">ID на сервере: ${scan.server_id}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            elements.scansCount.textContent = `Записей: ${filtered.length}`;
+        }
+
+        function updateConnectionStatus() {
+            const status = navigator.onLine 
+                ? '✅ Онлайн (данные синхронизируются)'
+                : '🔴 Офлайн (записи сохраняются в телефоне)';
+            elements.connectionStatus.textContent = status;
+        }
+
+        // ======================== ЭКСПОРТ ========================
+        async function exportCSV() {
+            const allScans = await db.getAllScans();
+
+            let csv = 'Sample,Скважина,Тип,Блок,Дата,Сотрудник,SyncStatus,ServerID\n';
+            allScans.forEach(scan => {
+                const date = new Date(scan.scanned_at).toLocaleString('ru-RU');
+                csv += `"${scan.sample}","${scan.well_name}","${scan.type}","${scan.block}","${date}","${scan.scanned_by}","${scan.sync_status}","${scan.server_id || ''}"\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+
+            link.setAttribute('href', url);
+            link.setAttribute('download', `scans_${new Date().toISOString().slice(0, 10)}.csv`);
+            link.style.visibility = 'hidden';
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            addLog('info', `Экспортировано ${allScans.length} проб в CSV`);
+            showNotification('📥 CSV экспортирован');
+
+            restartCamera();
+        }
+
+        // ======================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ========================
+        function showStatusMessage(message, type = 'info') {
+            elements.statusBlock.textContent = message;
+            elements.statusBlock.className = `status-block ${type === 'success' ? 'success' : type === 'error' ? 'error' : ''}`;
+        }
+
+        function showNotification(message) {
+            const notification = document.createElement('div');
+            notification.className = 'notification';
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            setTimeout(() => notification.remove(), 3000);
+        }
+
+        function playBeep() {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const now = audioContext.currentTime;
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+
+                osc.connect(gain);
+                gain.connect(audioContext.destination);
+
+                osc.frequency.value = 800;
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+                osc.start(now);
+                osc.stop(now + 0.1);
+            } catch (e) {
+                console.log('Beep не поддерживается');
+            }
+        }
+
+        function vibrate() {
+            if (navigator.vibrate) {
+                navigator.vibrate([50, 30, 50]);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function toggleTheme() {
+            document.body.classList.toggle('dark-theme');
+            const isDark = document.body.classList.contains('dark-theme');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            elements.themeToggle.textContent = isDark ? '☀️' : '🌙';
+        }
+
+        // Загрузка сохранённой темы
+        if (localStorage.getItem('theme') === 'dark') {
+            document.body.classList.add('dark-theme');
+            elements.themeToggle.textContent = '☀️';
+        }
+
+        // ======================== ЗАПУСК ========================
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+</body>
+</html>
